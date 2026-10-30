@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 800" width="1100" height="800" font-family="Segoe UI, Arial, sans-serif">
+<rect width="1100" height="800" fill="#ffffff"/>
+<text x="550.0" y="30" text-anchor="middle" font-size="20" font-weight="700" fill="#111827">PFO 3 - Sistema distribuido cliente-servidor (arquitectura objetivo)</text>
+<rect x="40" y="60" width="1020" height="90" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.6" stroke-dasharray="2 3"/>
+<text x="52" y="80" text-anchor="start" font-weight="700" font-size="14" fill="#111827">1. CLIENTES</text>
+<rect x="80" y="90" width="200" height="48" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="180.0" y="107.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">App móvil</text>
+<text x="180.0" y="124.0" text-anchor="middle" font-size="12" fill="#374151">Android / iOS</text>
+<rect x="320" y="90" width="200" height="48" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="420.0" y="107.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">Cliente web</text>
+<text x="420.0" y="124.0" text-anchor="middle" font-size="12" fill="#374151">navegador (HTTP/WebSocket)</text>
+<rect x="560" y="90" width="220" height="48" rx="8" fill="#e8f1ff" stroke="#2563eb" stroke-width="1.6" />
+<text x="670.0" y="107.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">Cliente Python (cliente.py)</text>
+<text x="670.0" y="124.0" text-anchor="middle" font-size="12" fill="#374151">sockets TCP + JSON</text>
+<rect x="820" y="90" width="200" height="48" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="920.0" y="107.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">Otros clientes</text>
+<text x="920.0" y="124.0" text-anchor="middle" font-size="12" fill="#374151">CLI / scripts</text>
+<rect x="200" y="200" width="700" height="60" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="550.0" y="223.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">2. BALANCEADOR DE CARGA - Nginx / HAProxy</text>
+<text x="550.0" y="240.0" text-anchor="middle" font-size="12" fill="#374151">reparte conexiones TCP/HTTP entre instancias del servidor (round robin / least_conn) + health checks</text>
+<line x1="180" y1="138" x2="330" y2="200" stroke="#374151" stroke-width="1.6" />
+<polygon points="330,200 320.0,200.3 323.1,192.7" fill="#374151"/>
+<rect x="115" y="163" width="73.8" height="17" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.8"/>
+<text x="120" y="175" font-size="11" fill="#1f2937" font-style="italic">TCP / HTTPS</text>
+<line x1="420" y1="138" x2="480" y2="200" stroke="#374151" stroke-width="1.6" />
+<polygon points="480,200 470.7,196.3 476.6,190.6" fill="#374151"/>
+<line x1="670" y1="138" x2="620" y2="200" stroke="#374151" stroke-width="1.6" />
+<polygon points="620,200 622.6,190.3 628.9,195.5" fill="#374151"/>
+<line x1="920" y1="138" x2="780" y2="200" stroke="#374151" stroke-width="1.6" />
+<polygon points="780,200 786.7,192.6 790.0,200.0" fill="#374151"/>
+<rect x="130" y="300" width="400" height="130" rx="8" fill="#e8f1ff" stroke="#2563eb" stroke-width="1.6" />
+<text x="330.0" y="358.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">3. SERVIDOR / GATEWAY (servidor.py)</text>
+<text x="330.0" y="375.0" text-anchor="middle" font-size="12" fill="#374151">pool de hilos para conexiones de clientes</text>
+<text x="330.0" y="390.0" text-anchor="middle" font-size="12" fill="#374151">protocolo JSON por socket, autenticación por token</text>
+<text x="330.0" y="405.0" text-anchor="middle" font-size="12" fill="#374151">despachadores + balanceo interno (menos carga)</text>
+<text x="330.0" y="420.0" text-anchor="middle" font-size="12" fill="#374151">reintento si un worker cae</text>
+<rect x="570" y="300" width="400" height="130" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="770.0" y="358.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">Servidor / Gateway #2 (réplica)</text>
+<text x="770.0" y="375.0" text-anchor="middle" font-size="12" fill="#374151">misma imagen, escala horizontal</text>
+<text x="770.0" y="390.0" text-anchor="middle" font-size="12" fill="#374151">sin estado: el estado vive en BD y cola</text>
+<line x1="450" y1="260" x2="330" y2="300" stroke="#374151" stroke-width="1.6" />
+<polygon points="330,300 337.4,293.2 340.0,301.0" fill="#374151"/>
+<rect x="390" y="271" width="68.0" height="17" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.8"/>
+<text x="395" y="283" font-size="11" fill="#1f2937" font-style="italic">socket TCP</text>
+<line x1="750" y1="260" x2="770" y2="300" stroke="#374151" stroke-width="1.6" />
+<polygon points="770,300 762.3,293.7 769.6,290.0" fill="#374151"/>
+<rect x="330" y="490" width="440" height="62" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="550.0" y="514.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">4. COLA DE MENSAJES - RabbitMQ</text>
+<text x="550.0" y="531.0" text-anchor="middle" font-size="12" fill="#374151">cola 'tareas' (work queue) + cola de resultados  </text>
+<text x="550.0" y="546.0" text-anchor="middle" font-size="12" fill="#374151">  en el código: queue.Queue acotada</text>
+<line x1="330" y1="430" x2="450" y2="490" stroke="#374151" stroke-width="1.6" />
+<polygon points="450,490 440.0,489.6 443.7,482.3" fill="#374151"/>
+<rect x="300" y="454" width="85.39999999999999" height="17" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.8"/>
+<text x="305" y="466" font-size="11" fill="#1f2937" font-style="italic">publica tarea</text>
+<line x1="770" y1="430" x2="650" y2="490" stroke="#374151" stroke-width="1.6" />
+<polygon points="650,490 656.3,482.3 660.0,489.6" fill="#374151"/>
+<rect x="40" y="590" width="700" height="120" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.6" stroke-dasharray="2 3"/>
+<text x="52" y="610" text-anchor="start" font-weight="700" font-size="14" fill="#111827">5. WORKERS (worker.py)</text>
+<rect x="60" y="625" width="200" height="70" rx="8" fill="#e8f1ff" stroke="#2563eb" stroke-width="1.6" />
+<text x="160.0" y="653.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">Worker 1</text>
+<text x="160.0" y="670.0" text-anchor="middle" font-size="12" fill="#374151">pool de hilos (ThreadPoolExecutor)</text>
+<text x="160.0" y="685.0" text-anchor="middle" font-size="12" fill="#374151">hilo 1 · hilo 2 · ... · hilo N</text>
+<rect x="290" y="625" width="200" height="70" rx="8" fill="#e8f1ff" stroke="#2563eb" stroke-width="1.6" />
+<text x="390.0" y="653.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">Worker 2</text>
+<text x="390.0" y="670.0" text-anchor="middle" font-size="12" fill="#374151">pool de hilos (ThreadPoolExecutor)</text>
+<text x="390.0" y="685.0" text-anchor="middle" font-size="12" fill="#374151">hilo 1 · hilo 2 · ... · hilo N</text>
+<rect x="520" y="625" width="200" height="70" rx="8" fill="#e8f1ff" stroke="#2563eb" stroke-width="1.6" />
+<text x="620.0" y="653.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">Worker 3</text>
+<text x="620.0" y="670.0" text-anchor="middle" font-size="12" fill="#374151">pool de hilos (ThreadPoolExecutor)</text>
+<text x="620.0" y="685.0" text-anchor="middle" font-size="12" fill="#374151">hilo 1 · hilo 2 · ... · hilo N</text>
+<line x1="450" y1="552" x2="200" y2="625" stroke="#374151" stroke-width="1.6" />
+<polygon points="200,625 207.6,618.5 209.9,626.4" fill="#374151"/>
+<rect x="285" y="573" width="102.8" height="17" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.8"/>
+<text x="290" y="585" font-size="11" fill="#1f2937" font-style="italic">consume / socket</text>
+<line x1="550" y1="552" x2="390" y2="625" stroke="#374151" stroke-width="1.6" />
+<polygon points="390,625 396.6,617.5 400.0,624.9" fill="#374151"/>
+<line x1="650" y1="552" x2="620" y2="625" stroke="#374151" stroke-width="1.6" />
+<polygon points="620,625 619.7,615.0 627.2,618.1" fill="#374151"/>
+<rect x="780" y="590" width="290" height="190" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.6" stroke-dasharray="2 3"/>
+<text x="792" y="610" text-anchor="start" font-weight="700" font-size="14" fill="#111827">6. ALMACENAMIENTO DISTRIBUIDO</text>
+<rect x="800" y="625" width="250" height="62" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="925.0" y="649.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">PostgreSQL</text>
+<text x="925.0" y="666.0" text-anchor="middle" font-size="12" fill="#374151">primario + réplicas · tareas y resultados</text>
+<text x="925.0" y="681.0" text-anchor="middle" font-size="12" fill="#374151">en el código: SQLite (tareas.db)</text>
+<rect x="800" y="700" width="250" height="62" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="925.0" y="724.0" text-anchor="middle" font-weight="700" font-size="14" fill="#111827">S3 (objetos)</text>
+<text x="925.0" y="741.0" text-anchor="middle" font-size="12" fill="#374151">archivos de entrada/salida grandes</text>
+<line x1="740" y1="650" x2="800" y2="650" stroke="#374151" stroke-width="1.6" />
+<polygon points="800,650 790.9,654.1 790.9,645.9" fill="#374151"/>
+<rect x="741" y="628" width="27.4" height="17" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.8"/>
+<text x="746" y="640" font-size="11" fill="#1f2937" font-style="italic">SQL</text>
+<line x1="740" y1="685" x2="800" y2="731" stroke="#374151" stroke-width="1.6" />
+<polygon points="800,731 790.3,728.7 795.2,722.2" fill="#374151"/>
+<rect x="717" y="730" width="50.6" height="17" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.8"/>
+<text x="722" y="742" font-size="11" fill="#1f2937" font-style="italic">objetos</text>
+<path d="M 970 365 C 1050 365, 1050 560, 1000 625" fill="none" stroke="#374151" stroke-width="1.6" stroke-dasharray="5 4"/>
+<polygon points="1000,625 997.0,615.5 1005.1,616.4" fill="#374151"/>
+<rect x="895" y="508" width="160.79999999999998" height="17" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.8"/>
+<text x="900" y="520" font-size="11" fill="#1f2937" font-style="italic">registra / consulta tareas</text>
+<rect x="40" y="735" width="18" height="12" rx="3" fill="#e8f1ff" stroke="#2563eb" stroke-width="1.6"/>
+<text x="64" y="746" font-size="12" fill="#111827">Implementado en este repositorio (Python)</text>
+<rect x="40" y="755" width="18" height="12" rx="3" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="64" y="766" font-size="12" fill="#111827">Componente de producción (diseño; simulado o sustituido en el código)</text>
+</svg>
