@@ -12,6 +12,8 @@
 
 Rediseño de un sistema cliente-servidor como **sistema distribuido** basado en sockets TCP. Un servidor recibe tareas de varios clientes y las reparte entre un conjunto de **workers** independientes, cada uno con su propio **pool de hilos**. Si un worker cae, el servidor lo detecta y reintenta la tarea en otro, de modo que el cliente no nota la falla (transparencia de fallos).
 
+Los usuarios se registran e inician sesión con contraseñas hasheadas, y cada usuario solo accede a sus propias tareas.
+
 El trabajo tiene dos partes:
 
 1. **Diseño**: diagrama de la arquitectura objetivo (clientes, balanceador, workers, cola de mensajes y almacenamiento distribuido).
@@ -42,10 +44,12 @@ PFO3/
 ├── cliente.py         # Cliente de consola (comandos, demo concurrente y menú)
 ├── tareas.py          # Catálogo de tareas que ejecutan los workers
 ├── protocolo.py       # Formato de mensajes compartido (JSON por línea sobre TCP)
+├── usuarios.py        # Registro, inicio de sesión y hash de contraseñas (scrypt)
 ├── iniciar_todo.py    # Atajo: levanta workers + servidor en una terminal
 ├── requirements.txt   # Sin dependencias externas
 ├── tests/
 │   └── test_sistema.py
+├── capturas/          # Capturas de la ejecución y de las pruebas
 └── docs/              # Diagrama (png, svg, mermaid)
 ```
 
@@ -57,8 +61,8 @@ cliente ──socket──▶ hilo de conexión ──▶ cola ──▶ despach
    └────────────────────── resultado ◀──────────────────┴──── resultado ◀───────┘
 ```
 
-1. El cliente abre un socket TCP y envía un mensaje JSON (`{"accion": "enviar", "tipo": "fibonacci", "datos": 30}`).
-2. Un hilo del pool del servidor lo atiende, registra la tarea en la base (`pendiente`) y la pone en la cola.
+1. El cliente abre un socket TCP y envía un mensaje JSON con sus credenciales (`{"accion": "enviar", "usuario": "ana", "contraseña": "clave", "tipo": "fibonacci", "datos": 30}`).
+2. Un hilo del pool del servidor verifica las credenciales, registra la tarea en la base (`pendiente`, asociada al usuario) y la pone en la cola.
 3. Un despachador toma la tarea, elige el worker **con menos tareas en curso** (desempata por el menos recientemente usado) y se la envía por otro socket.
 4. El worker la ejecuta en un hilo de su pool y devuelve el resultado.
 5. El servidor guarda el resultado (`completada` o `error`) y responde al cliente.
@@ -69,8 +73,10 @@ Un mensaje por línea, en JSON UTF-8, terminado en `\n` (TCP es un flujo de byte
 
 | Acción (cliente → servidor) | Campos | Respuesta |
 |---|---|---|
-| `enviar` | `tipo`, `datos`, `token` (si el servidor lo exige) | `{"ok": true, "id", "resultado", "worker", "ms"}` o `{"ok": false, "error"}` |
-| `consultar` | `id` | datos de la tarea guardada |
+| `registro` | `usuario`, `contraseña` | `{"ok": true, "codigo": 201}` o `{"ok": false, "codigo": 400 \| 409, "error"}` |
+| `login` | `usuario`, `contraseña` | `{"ok": true, "codigo": 200, "usuario"}` o `{"ok": false, "codigo": 400 \| 401, "error"}` |
+| `enviar` | `usuario`, `contraseña`, `tipo`, `datos`, `token` (si el servidor lo exige) | `{"ok": true, "id", "resultado", "worker", "ms"}` o `{"ok": false, "error"}`; sin credenciales válidas, `codigo: 401` |
+| `consultar` | `usuario`, `contraseña`, `id` | datos de una tarea **propia**; una tarea de otro usuario responde "no existe" |
 | `estado` | — | tareas en cola y estado de cada worker |
 | `tipos` | — | tipos de tarea disponibles |
 
@@ -85,6 +91,8 @@ Tipos de tarea: `fibonacci`, `factorial`, `es_primo`, `contar_primos`, `invertir
 - **Tolerancia a fallos**: ante un error de conexión con un worker se lo marca caído unos segundos y la tarea se reintenta en otro; si no quedan workers se informa el error al cliente.
 - **Timeouts**: se cierran las conexiones de clientes inactivos y se limita el tiempo de espera a los workers.
 - **Autenticación** opcional por token compartido (`--token` o `PFO3_TOKEN`), comparado con `hmac.compare_digest`.
+- **Usuarios**: registro e inicio de sesión con una tabla `usuarios` en SQLite. Las contraseñas se guardan como hash scrypt con sal aleatoria (`hashlib.scrypt`, formato `scrypt:N:r:p$sal$hash`) y se comparan con `hmac.compare_digest`. Sigue sin depender de paquetes externos.
+- **Tareas por usuario**: cada tarea queda asociada a su usuario, y `consultar` solo devuelve tareas propias.
 - **Validación** de cada entrada (rangos y tipos) y límite de tamaño de mensaje.
 - **Logging** de conexiones, tareas y fallos con el módulo `logging`.
 - **Persistencia** con consultas parametrizadas; una tabla `tareas` con estado, resultado, worker y tiempos.
@@ -115,39 +123,17 @@ python servidor.py --puerto 5050 --workers 127.0.0.1:6001,127.0.0.1:6002,127.0.0
 Cliente (en otra terminal):
 
 ```bash
-python cliente.py                         # menú interactivo
-python cliente.py enviar fibonacci 30
-python cliente.py enviar sumar "[1, 2, 3.5]"
-python cliente.py enviar invertir "hola mundo"
-python cliente.py consultar 1
+python cliente.py                                                    # menú: registrarse o iniciar sesión
+python cliente.py registrar --usuario ana --contraseña clave-segura
+python cliente.py login --usuario ana --contraseña clave-segura
+python cliente.py enviar fibonacci 30 --usuario ana --contraseña clave-segura
+python cliente.py enviar sumar "[1, 2, 3.5]" --usuario ana --contraseña clave-segura
+python cliente.py consultar 1 --usuario ana --contraseña clave-segura
 python cliente.py estado
-python cliente.py demo --tareas 12        # 12 tareas desde clientes concurrentes
+python cliente.py demo --tareas 12 --usuario ana --contraseña clave-segura   # 12 tareas desde clientes concurrentes
 ```
 
-Ejemplo real de salida:
-
-```text
-$ python cliente.py enviar fibonacci 30
-[tarea 1] resultado: 832040
-            worker: worker-1  tiempo: 0.06 ms
-
-$ python cliente.py demo --tareas 12
-...
-12 tareas en 1.13 s. Reparto por worker: {'worker-1': 8, 'worker-3': 2, 'worker-2': 2}
-
-$ python cliente.py estado
-Tareas recibidas: 15  en cola: 0
-  - 127.0.0.1:6001     activo  en curso: 0  completadas: 9
-  - 127.0.0.1:6002     activo  en curso: 0  completadas: 3
-  - 127.0.0.1:6003     activo  en curso: 0  completadas: 3
-```
-
-Tras detener el worker-2 (Ctrl+C en su terminal) y volver a ejecutar `demo`, las tareas siguen completándose en los otros dos workers y `estado` muestra el worker caído:
-
-```text
-6 tareas en 2.29 s. Reparto por worker: {'worker-3': 3, 'worker-1': 3}
-  - 127.0.0.1:6002     CAÍDO   en curso: 0  completadas: 2
-```
+Si se omiten `--usuario` o `--contraseña`, el cliente los pide por consola (la contraseña no se muestra al escribirla). Las salidas reales de cada escenario están en la sección [Capturas de pantalla](#capturas-de-pantalla).
 
 ## Pruebas automatizadas
 
@@ -155,12 +141,66 @@ Tras detener el worker-2 (Ctrl+C en su terminal) y volver a ejecutar `demo`, las
 python -m unittest discover -s tests -v
 ```
 
-Levantan workers y servidor reales en puertos libres de `localhost` y comprueban: resultados correctos, validación de datos, reparto entre workers, concurrencia real (12 tareas de 0,3 s terminan en menos de 2 s), caída de un worker y de todos, persistencia y consulta, token, JSON inválido, timeout por inactividad y saturación de la cola. Duran unos 25 segundos.
+Levantan workers y servidor reales en puertos libres de `localhost` y comprueban: resultados correctos, validación de datos, reparto entre workers, concurrencia real (12 tareas de 0,3 s terminan en menos de 2 s), caída de un worker y de todos, persistencia y consulta, registro e inicio de sesión (incluidos duplicados sin distinguir mayúsculas y validaciones), contraseñas guardadas como hash, aislamiento de tareas entre usuarios, migración de bases anteriores, token, JSON inválido, timeout por inactividad y saturación de la cola.
+
+Son 24 tests y duran unos 45 segundos: cada verificación de contraseña tarda unos 100 ms por el costo deliberado de scrypt.
+
+## Capturas de pantalla
+
+Salidas de ejecuciones reales del sistema, renderizadas como imagen.
+
+### 1. Servidor y workers en ejecución
+
+Cada worker y el servidor se inician y registran el puerto en el que escuchan.
+
+![Servidor y workers en ejecución](capturas/01-servidor-y-workers.png)
+
+### 2. Registro e inicio de sesión
+
+Registro correcto, inicio de sesión correcto y con contraseña incorrecta (`401`).
+
+![Registro e inicio de sesión](capturas/02-registro-y-login.png)
+
+### 3. Tareas con usuario
+
+Envío de tareas autenticado, reparto entre workers y consulta de una tarea propia.
+
+![Tareas con usuario](capturas/03-tareas-con-usuario.png)
+
+### 4. Validaciones y errores
+
+Sin credenciales (`401`), contraseña incorrecta, tipo de tarea inexistente, datos inválidos, usuario duplicado (`409`), campos vacíos (`400`) y consulta de una tarea de otro usuario.
+
+![Validaciones y errores](capturas/04-errores.png)
+
+### 5. Cliente interactivo
+
+Menú con registro, inicio de sesión y envío de una tarea.
+
+![Cliente interactivo](capturas/05-cliente-consola.png)
+
+### 6. Tolerancia a fallos
+
+Con worker-2 detenido, la demo se completa en los otros dos workers y `estado` lo muestra como `CAÍDO`.
+
+![Demo con un worker caído](capturas/06-tolerancia-a-fallos.png)
+
+### 7. Base de datos
+
+Las contraseñas se guardan como hash scrypt con sal; cada tarea queda asociada a su usuario.
+
+![Contenido de la base de datos](capturas/07-base-de-datos.png)
+
+### 8. Pruebas automatizadas
+
+![Pruebas automatizadas](capturas/08-tests.png)
 
 ## Limitaciones y mejoras para producción
 
 - RabbitMQ, Nginx/HAProxy, PostgreSQL y S3 forman parte del **diseño**; en el código se simulan con `queue.Queue` y SQLite, y el balanceo entre workers lo hace el propio servidor.
 - La cola en memoria se pierde si el servidor se cae; RabbitMQ con colas durables y confirmaciones lo resolvería.
-- La comunicación no está cifrada; en producción iría sobre TLS.
+- La comunicación no está cifrada: las contraseñas viajan en cada mensaje en texto plano por TCP. En producción iría sobre TLS.
+- Cada `enviar` y `consultar` verifica la contraseña (scrypt, unos 100 ms). Una mejora sería emitir un token de sesión de corta duración en `login`.
+- `login` responde más lento si el usuario existe (solo ahí se calcula el hash), lo que permite averiguar qué usuarios existen. Se resolvería calculando siempre un hash.
 - El registro de workers es una lista fija; podría haber auto-registro y *health checks* periódicos.
 - Un solo servidor es un punto único de falla; se resuelve replicándolo detrás del balanceador.

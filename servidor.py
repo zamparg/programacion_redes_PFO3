@@ -9,7 +9,7 @@ Flujo de una tarea:
   RabbitMQ) y aplica contrapresión si el sistema se satura.
 - Despachadores: hilos que sacan tareas de la cola y las envían a un worker.
   Si el worker no responde, se lo marca caído un tiempo y se reintenta en otro.
-- Persistencia de tareas y resultados en SQLite (en producción, PostgreSQL).
+- Usuarios (registro e inicio de sesión) y tareas persistidos en SQLite (en producción, PostgreSQL).
 """
 
 import argparse
@@ -30,13 +30,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import protocolo
+import usuarios
 from tareas import TAREAS
 
 log = logging.getLogger("servidor")
 
+_ERROR_CREDENCIALES = (
+    'Se requieren "usuario" y "contraseña" como texto no vacío; el usuario no puede contener ":"'
+)
+
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS tareas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario TEXT,
     tipo TEXT NOT NULL,
     datos TEXT,
     estado TEXT NOT NULL,
@@ -70,6 +76,17 @@ class Tarea:
     tipo: str
     datos: object
     futuro: Future = field(default_factory=Future)
+
+
+def _credenciales(mensaje: dict) -> tuple[str, str] | None:
+    """Devuelve (usuario, contraseña) limpios, o None si el formato no es válido."""
+    usuario, contraseña = mensaje.get("usuario"), mensaje.get("contraseña")
+    if not isinstance(usuario, str) or not isinstance(contraseña, str):
+        return None
+    usuario = usuario.strip()
+    if not usuario or not contraseña or ":" in usuario:
+        return None
+    return usuario, contraseña
 
 
 class Servidor:
@@ -154,7 +171,11 @@ class Servidor:
     def _iniciar_db(self) -> None:
         Path(self.db).parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.db)) as con:
+            con.execute(usuarios.ESQUEMA)
             con.execute(ESQUEMA)
+            columnas = {fila[1] for fila in con.execute("PRAGMA table_info(tareas)")}
+            if "usuario" not in columnas:  # bases creadas antes de existir los usuarios
+                con.execute("ALTER TABLE tareas ADD COLUMN usuario TEXT")
             con.commit()
 
     def _ejecutar_sql(self, sql: str, params: tuple = ()) -> int:
@@ -163,10 +184,12 @@ class Servidor:
             con.commit()
             return cursor.lastrowid
 
-    def _consultar_tarea(self, id_tarea: int) -> dict | None:
+    def _consultar_tarea(self, id_tarea: int, usuario: str) -> dict | None:
         with closing(sqlite3.connect(self.db)) as con:
             con.row_factory = sqlite3.Row
-            fila = con.execute("SELECT * FROM tareas WHERE id = ?", (id_tarea,)).fetchone()
+            fila = con.execute(
+                "SELECT * FROM tareas WHERE id = ? AND usuario = ?", (id_tarea, usuario)
+            ).fetchone()
         if fila is None:
             return None
         tarea = dict(fila)
@@ -217,6 +240,10 @@ class Servidor:
                 return {"ok": False, "error": "no autorizado: token incorrecto"}
 
         accion = mensaje.get("accion")
+        if accion == "registro":
+            return self._accion_registro(mensaje)
+        if accion == "login":
+            return self._accion_login(mensaje)
         if accion == "enviar":
             return self._enviar_tarea(mensaje)
         if accion == "consultar":
@@ -227,15 +254,49 @@ class Servidor:
             return {"ok": True, "tipos": sorted(TAREAS)}
         return {"ok": False, "error": f"acción desconocida: {accion!r}"}
 
+    # ---------- usuarios ----------
+
+    def _accion_registro(self, mensaje: dict) -> dict:
+        credenciales = _credenciales(mensaje)
+        if credenciales is None:
+            return {"ok": False, "codigo": 400, "error": _ERROR_CREDENCIALES}
+        if not usuarios.registrar(self.db, *credenciales):
+            return {"ok": False, "codigo": 409, "error": "El usuario ya existe"}
+        return {"ok": True, "codigo": 201, "mensaje": "Usuario registrado correctamente"}
+
+    def _accion_login(self, mensaje: dict) -> dict:
+        credenciales = _credenciales(mensaje)
+        if credenciales is None:
+            return {"ok": False, "codigo": 400, "error": _ERROR_CREDENCIALES}
+        usuario, contraseña = credenciales
+        if not usuarios.verificar(self.db, usuario, contraseña):
+            return {"ok": False, "codigo": 401, "error": "Usuario o contraseña incorrectos"}
+        return {"ok": True, "codigo": 200, "usuario": usuario, "mensaje": "Inicio de sesión correcto"}
+
+    def _autenticar(self, mensaje: dict) -> tuple[str | None, dict | None]:
+        """Devuelve (usuario, None) si las credenciales son válidas, o (None, error)."""
+        credenciales = _credenciales(mensaje)
+        if credenciales is None:
+            return None, {"ok": False, "codigo": 401, "error": "Autenticación requerida: envíe usuario y contraseña"}
+        usuario, contraseña = credenciales
+        if not usuarios.verificar(self.db, usuario, contraseña):
+            return None, {"ok": False, "codigo": 401, "error": "Usuario o contraseña incorrectos"}
+        return usuario, None
+
+    # ---------- tareas ----------
+
     def _enviar_tarea(self, mensaje: dict) -> dict:
+        usuario, error = self._autenticar(mensaje)
+        if error is not None:
+            return error
         tipo = mensaje.get("tipo")
         if tipo not in TAREAS:
             return {"ok": False, "error": f"tipo de tarea desconocido: {tipo!r}"}
         datos = mensaje.get("datos")
 
         id_tarea = self._ejecutar_sql(
-            "INSERT INTO tareas (tipo, datos, estado) VALUES (?, ?, 'pendiente')",
-            (tipo, json.dumps(datos, ensure_ascii=False)),
+            "INSERT INTO tareas (usuario, tipo, datos, estado) VALUES (?, ?, ?, 'pendiente')",
+            (usuario, tipo, json.dumps(datos, ensure_ascii=False)),
         )
         tarea = Tarea(id_tarea, tipo, datos)
         try:
@@ -257,10 +318,13 @@ class Servidor:
         return respuesta
 
     def _accion_consultar(self, mensaje: dict) -> dict:
+        usuario, error = self._autenticar(mensaje)
+        if error is not None:
+            return error
         id_tarea = mensaje.get("id")
         if isinstance(id_tarea, bool) or not isinstance(id_tarea, int):
             return {"ok": False, "error": 'se requiere "id" entero'}
-        tarea = self._consultar_tarea(id_tarea)
+        tarea = self._consultar_tarea(id_tarea, usuario)
         if tarea is None:
             return {"ok": False, "error": f"no existe la tarea {id_tarea}"}
         return {"ok": True, "tarea": tarea}

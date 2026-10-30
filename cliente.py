@@ -1,16 +1,19 @@
 """Cliente de consola: envía tareas al servidor y muestra los resultados.
 
 Ejemplos:
-    python cliente.py enviar fibonacci 30
-    python cliente.py enviar sumar "[1, 2, 3.5]"
-    python cliente.py enviar invertir "hola mundo"
-    python cliente.py consultar 1
+    python cliente.py registrar --usuario ana --contraseña clave
+    python cliente.py enviar fibonacci 30 --usuario ana --contraseña clave
+    python cliente.py enviar sumar "[1, 2, 3.5]" --usuario ana --contraseña clave
+    python cliente.py consultar 1 --usuario ana --contraseña clave
     python cliente.py estado
-    python cliente.py demo --tareas 12
-    python cliente.py            (menú interactivo)
+    python cliente.py demo --tareas 12 --usuario ana --contraseña clave
+    python cliente.py            (menú interactivo: registro o inicio de sesión)
+
+Si falta --usuario o --contraseña, el cliente los pide por consola.
 """
 
 import argparse
+import getpass
 import json
 import os
 import random
@@ -24,22 +27,41 @@ PUERTO = 5050
 
 
 class Cliente:
-    def __init__(self, host: str = HOST, puerto: int = PUERTO, token: str | None = None, timeout: float = 130):
+    def __init__(
+        self,
+        host: str = HOST,
+        puerto: int = PUERTO,
+        token: str | None = None,
+        timeout: float = 130,
+        usuario: str | None = None,
+        contraseña: str | None = None,
+    ):
         self.host = host
         self.puerto = puerto
         self.token = token
         self.timeout = timeout
+        self.usuario = usuario
+        self.contraseña = contraseña
 
     def _pedir(self, mensaje: dict) -> dict:
         if self.token is not None:
             mensaje = {**mensaje, "token": self.token}
         return protocolo.peticion(self.host, self.puerto, mensaje, self.timeout)
 
+    def _pedir_autenticado(self, mensaje: dict) -> dict:
+        return self._pedir({**mensaje, "usuario": self.usuario, "contraseña": self.contraseña})
+
+    def registrar(self, usuario: str, contraseña: str) -> dict:
+        return self._pedir({"accion": "registro", "usuario": usuario, "contraseña": contraseña})
+
+    def login(self, usuario: str, contraseña: str) -> dict:
+        return self._pedir({"accion": "login", "usuario": usuario, "contraseña": contraseña})
+
     def enviar(self, tipo: str, datos=None) -> dict:
-        return self._pedir({"accion": "enviar", "tipo": tipo, "datos": datos})
+        return self._pedir_autenticado({"accion": "enviar", "tipo": tipo, "datos": datos})
 
     def consultar(self, id_tarea: int) -> dict:
-        return self._pedir({"accion": "consultar", "id": id_tarea})
+        return self._pedir_autenticado({"accion": "consultar", "id": id_tarea})
 
     def estado(self) -> dict:
         return self._pedir({"accion": "estado"})
@@ -65,6 +87,13 @@ def mostrar_respuesta(respuesta: dict) -> None:
             resultado = resultado[:200] + f"... ({len(resultado)} caracteres)"
         print(f"[tarea {respuesta.get('id')}] resultado: {resultado}")
         print(f"            worker: {respuesta.get('worker')}  tiempo: {respuesta.get('ms')} ms")
+    else:
+        print(f"[error] {respuesta.get('error')}")
+
+
+def mostrar_mensaje(respuesta: dict) -> None:
+    if respuesta.get("ok"):
+        print(respuesta.get("mensaje"))
     else:
         print(f"[error] {respuesta.get('error')}")
 
@@ -115,7 +144,36 @@ def demo(cliente: Cliente, cantidad: int) -> None:
     print(f"\n{cantidad} tareas en {total:.2f} s. Reparto por worker: {por_worker}")
 
 
+def autenticarse(cliente: Cliente) -> bool:
+    """Pregunta si registrarse o iniciar sesión; deja las credenciales cargadas en el cliente."""
+    print("\nSistema distribuido de tareas")
+    print("1. Registrarse")
+    print("2. Iniciar sesión")
+    opcion = input("Selecciona una opción: ").strip()
+    if opcion not in {"1", "2"}:
+        print("Opción no válida.")
+        return False
+
+    usuario = input("Usuario: ").strip()
+    contraseña = getpass.getpass("Contraseña: ")
+    if opcion == "1":
+        respuesta = cliente.registrar(usuario, contraseña)
+        mostrar_mensaje(respuesta)
+        if not respuesta.get("ok"):
+            return False
+
+    respuesta = cliente.login(usuario, contraseña)
+    if not respuesta.get("ok"):
+        mostrar_mensaje(respuesta)
+        return False
+    cliente.usuario, cliente.contraseña = respuesta["usuario"], contraseña
+    print(f"¡Bienvenido/a, {respuesta['usuario']}! Has iniciado sesión correctamente en el sistema de tareas.")
+    return True
+
+
 def menu(cliente: Cliente) -> None:
+    if not autenticarse(cliente):
+        return
     tipos = cliente.tipos()
     while True:
         print("\nSistema distribuido de tareas")
@@ -144,36 +202,55 @@ def menu(cliente: Cliente) -> None:
             print("Opción no válida.")
 
 
+def pedir_credenciales(args: argparse.Namespace, cliente: Cliente) -> None:
+    cliente.usuario = args.usuario or input("Usuario: ").strip()
+    cliente.contraseña = args.contraseña if args.contraseña is not None else getpass.getpass("Contraseña: ")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cliente del sistema distribuido (PFO 3)")
     parser.add_argument("--host", default=HOST)
     parser.add_argument("--puerto", type=int, default=PUERTO)
     parser.add_argument("--token", default=os.environ.get("PFO3_TOKEN"))
+
+    credenciales = argparse.ArgumentParser(add_help=False)
+    credenciales.add_argument("--usuario", help="usuario (si se omite, se pide)")
+    credenciales.add_argument("--contraseña", help="contraseña (si se omite, se pide)")
     sub = parser.add_subparsers(dest="comando")
 
-    p_enviar = sub.add_parser("enviar", help="envía una tarea y espera el resultado")
+    sub.add_parser("registrar", parents=[credenciales], help="crea un usuario nuevo")
+    sub.add_parser("login", parents=[credenciales], help="comprueba usuario y contraseña")
+    p_enviar = sub.add_parser("enviar", parents=[credenciales], help="envía una tarea y espera el resultado")
     p_enviar.add_argument("tipo")
     p_enviar.add_argument("datos", nargs="?")
-    p_consultar = sub.add_parser("consultar", help="consulta una tarea por id")
+    p_consultar = sub.add_parser("consultar", parents=[credenciales], help="consulta una tarea propia por id")
     p_consultar.add_argument("id", type=int)
     sub.add_parser("estado", help="estado de la cola y de los workers")
     sub.add_parser("tipos", help="lista los tipos de tarea disponibles")
-    p_demo = sub.add_parser("demo", help="envía varias tareas concurrentes")
+    p_demo = sub.add_parser("demo", parents=[credenciales], help="envía varias tareas concurrentes")
     p_demo.add_argument("--tareas", type=int, default=12)
 
     args = parser.parse_args()
     cliente = Cliente(args.host, args.puerto, args.token)
     try:
-        if args.comando == "enviar":
-            mostrar_respuesta(cliente.enviar(args.tipo, interpretar_datos(args.datos)))
-        elif args.comando == "consultar":
-            print(json.dumps(cliente.consultar(args.id), ensure_ascii=False, indent=2))
+        if args.comando in {"registrar", "login"}:
+            pedir_credenciales(args, cliente)
+            if args.comando == "registrar":
+                mostrar_mensaje(cliente.registrar(cliente.usuario, cliente.contraseña))
+            else:
+                mostrar_mensaje(cliente.login(cliente.usuario, cliente.contraseña))
+        elif args.comando in {"enviar", "consultar", "demo"}:
+            pedir_credenciales(args, cliente)
+            if args.comando == "enviar":
+                mostrar_respuesta(cliente.enviar(args.tipo, interpretar_datos(args.datos)))
+            elif args.comando == "consultar":
+                print(json.dumps(cliente.consultar(args.id), ensure_ascii=False, indent=2))
+            else:
+                demo(cliente, args.tareas)
         elif args.comando == "estado":
             mostrar_estado(cliente.estado())
         elif args.comando == "tipos":
             print(", ".join(cliente.tipos()))
-        elif args.comando == "demo":
-            demo(cliente, args.tareas)
         else:
             menu(cliente)
     except (OSError, protocolo.ProtocoloError) as error:
